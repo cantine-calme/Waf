@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#7fd4ff">
+<title>La Roue des Toutous – Roulette du jeu de cartes</title>
+
+<!--
+  =====================================================================
+  LA ROUE DES TOUTOUS – roulette pour jeu de cartes (enfants)
+  Fichier unique et autonome : HTML + CSS + JavaScript.
+  Aucune image externe, aucune bibliothèque, fonctionne hors ligne.
+  Publiable tel quel sur GitHub Pages.
+
+  Illustrations (chien, os, empreintes) : créations originales en SVG.
+
+  Où modifier quoi ?
+   - Les couleurs des cases ........ CELL_STYLES  (section JavaScript)
+   - La durée de rotation .......... SPIN_MS
+   - La probabilité de départ ...... fonction shouldSpin()
+   - Les textes affichés ........... objet TEXTS
+  =====================================================================
+-->
+
+<style>
+/* ---------- Variables générales ---------- */
+:root{
+  --ink:#2b1b3d;                 /* couleur des contours / textes foncés */
+  --btn:#ff4d4d;                 /* couleur du bouton central (change à chaque appui) */
+  /* Taille de la roulette : s'adapte à l'écran */
+  --wheel:max(230px, min(92vw, calc(100vh - 330px), 640px));
+}
+@supports (height:100dvh){
+  :root{ --wheel:max(230px, min(92vw, calc(100dvh - 330px), 640px)); }
+}
+
+*{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body{ margin:0; }
+body{
+  min-height:100vh; min-height:100dvh;
+  font-family:"Baloo 2","Fredoka","Arial Rounded MT Bold","Trebuchet MS",system-ui,sans-serif;
+  color:var(--ink);
+  background:linear-gradient(#7fd4ff 0%, #c4ecff 50%, #fff3b0 100%);
+  overflow-x:hidden;
+  -webkit-user-select:none; user-select:none;
+  touch-action:manipulation;
+}
+
+/* ---------- Décor de fond ---------- */
+.hill{
+  position:fixed; left:-10vw; right:-10vw; bottom:-12vh; height:24vh;
+  background:radial-gradient(ellipse at 50% 0%, #7ed957 0%, #4fbf4a 70%);
+  border-radius:50% 50% 0 0; z-index:0; pointer-events:none;
+}
+.deco{ position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden; }
+.deco svg{ position:absolute; opacity:.4; }
+.sun{
+  position:fixed; top:-40px; right:-40px; width:140px; height:140px; border-radius:50%;
+  background:radial-gradient(circle,#fff6a8 30%,#ffe14d 70%); opacity:.9; z-index:0; pointer-events:none;
+}
+
+/* Petits chiens décoratifs sur les côtés */
+.buddy{
+  position:fixed; bottom:-6px; width:clamp(70px,12vw,150px); aspect-ratio:1;
+  z-index:0; pointer-events:none; transform-origin:50% 100%;
+  animation:buddyBounce 2.6s ease-in-out infinite;
+}
+.buddy.left{ left:2vw; --fur:#e0a458; --ear:#8a5a33; }
+.buddy.right{ right:2vw; --fur:#f7f2e8; --ear:#3b3b4f; animation-delay:-1.3s; }
+@keyframes buddyBounce{ 0%,100%{transform:translateY(0) rotate(-3deg)} 50%{transform:translateY(-8px) rotate(3deg)} }
+
+/* ---------- Mise en page ---------- */
+.game{
+  position:relative; z-index:1;
+  min-height:100vh; min-height:100dvh;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:10px; padding:12px 8px 18px;
+}
+h1{
+  margin:0; text-align:center; line-height:1.05;
+  font-size:clamp(1.5rem,6.2vw,2.7rem); font-weight:900; letter-spacing:.5px;
+  color:#ff7a1a;
+  text-shadow:0 3px 0 #b34700, 0 0 10px rgba(255,255,255,.9), 2px 2px 0 #fff, -2px -2px 0 #fff, 2px -2px 0 #fff, -2px 2px 0 #fff;
+}
+h1 svg{ width:1em; height:1em; vertical-align:-.1em; color:#8a5a33; }
+
+/* ---------- Roulette ---------- */
+.wheel-zone{
+  position:relative; width:var(--wheel); height:var(--wheel);
+  margin-top:calc(var(--wheel) * .12);
+}
+.rotor{
+  position:absolute; inset:0; border-radius:50%;
+  will-change:transform;
+  filter:drop-shadow(0 8px 0 rgba(43,27,61,.28));
+}
+.rotor svg{ width:100%; height:100%; display:block; }
+.rotor text{ font-family:inherit; }
+
+/* Petites ampoules du bord : clignotent pendant la rotation */
+.rotor.spinning .la{ animation:blink .36s steps(1) infinite; }
+.rotor.spinning .lb{ animation:blink .36s steps(1) infinite .18s; }
+@keyframes blink{ 50%{ opacity:.2; } }
+
+/* Flèche fixe */
+.pointer{
+  position:absolute; left:50%; top:-11.5%; width:12%;
+  transform:translateX(-50%); transform-origin:50% 25%;
+  z-index:3; filter:drop-shadow(0 4px 0 rgba(43,27,61,.3)); pointer-events:none;
+}
+.pointer svg{ width:100%; display:block; }
+
+/* Bouton central = le petit chien */
+.hub{
+  position:absolute; left:50%; top:50%; width:30%; aspect-ratio:1;
+  transform:translate(-50%,-50%);
+  border:0; padding:0; margin:0; background:none; border-radius:50%;
+  cursor:pointer; z-index:2;
+  filter:drop-shadow(0 5px 0 rgba(43,27,61,.35));
+  transition:transform .1s;
+}
+.hub:active:not(:disabled){ transform:translate(-50%,-50%) scale(.92); }
+.hub:disabled{ cursor:not-allowed; }
+.hub:focus-visible{ outline:4px solid #fff; outline-offset:3px; }
+.hub.idle{ animation:ping 1.8s ease-out infinite; }
+@keyframes ping{
+  0%{ box-shadow:0 0 0 0 rgba(255,255,255,.9); }
+  100%{ box-shadow:0 0 0 calc(var(--wheel) * .06) rgba(255,255,255,0); }
+}
+.hub svg{ width:100%; height:100%; display:block; overflow:visible; }
+.bgc{ fill:var(--btn); stroke:#fff; stroke-width:6; transition:fill .15s; }
+
+/* ---------- Le chien : expressions ---------- */
+.dog .s{ display:none; }
+.mood-sleep   .s-sleep,
+.mood-sad     .s-sad,
+.mood-happy   .s-happy,
+.mood-spin    .s-spin,
+.mood-curious .s-curious{ display:inline; }
+
+.dog .ln{ fill:none; stroke:#2d1d14; stroke-width:4.5; stroke-linecap:round; stroke-linejoin:round; }
+.dog .body{ transform-box:view-box; transform-origin:100px 150px; }
+.dog .ear{ transform-box:fill-box; transform-origin:50% 0%; transition:transform .25s; }
+
+/* Repos : respiration + petits "z" */
+.mood-sleep .body{ animation:breathe 3s ease-in-out infinite; }
+@keyframes breathe{ 0%,100%{transform:scale(1)} 50%{transform:scale(1.03,1.05)} }
+.z{ font-weight:900; fill:#fff; stroke:#2b1b3d; stroke-width:3; paint-order:stroke; animation:zfloat 2.4s ease-in-out infinite; }
+.z2{ animation-delay:-.8s; } .z3{ animation-delay:-1.6s; }
+@keyframes zfloat{ 0%{opacity:0;transform:translateY(8px)} 30%{opacity:1} 100%{opacity:0;transform:translateY(-8px)} }
+
+/* Déçu : oreilles baissées */
+.mood-sad .ear-l{ transform:rotate(18deg); }
+.mood-sad .ear-r{ transform:rotate(-18deg); }
+.mood-sad .body{ animation:sadsway 2s ease-in-out infinite; }
+@keyframes sadsway{ 0%,100%{transform:rotate(-2deg)} 50%{transform:rotate(2deg)} }
+
+/* Joyeux : petit saut */
+.mood-happy .body{ animation:hop .5s ease-out 3; }
+@keyframes hop{ 0%,100%{transform:translateY(0)} 40%{transform:translateY(-9px) scale(1.04)} }
+
+/* Pendant la rotation : tête qui se balance, yeux "tourbillon", langue qui bat */
+.mood-spin .body{ animation:wiggle .28s ease-in-out infinite; }
+@keyframes wiggle{ 0%,100%{transform:rotate(-7deg)} 50%{transform:rotate(7deg)} }
+.ring{ transform-box:fill-box; transform-origin:center; animation:rot .6s linear infinite; }
+@keyframes rot{ to{ transform:rotate(360deg); } }
+.tongue{ transform-box:fill-box; transform-origin:50% 0%; animation:wag .25s ease-in-out infinite alternate; }
+@keyframes wag{ from{transform:rotate(-8deg)} to{transform:rotate(8deg)} }
+
+/* Curieux : tête penchée */
+.mood-curious .body{ transform:rotate(9deg); transition:transform .3s; }
+
+/* ---------- Zone de message ---------- */
+.panel{
+  width:min(94vw,720px);
+  background:#fff; border:5px solid var(--ink); border-radius:26px;
+  padding:10px 14px 12px; text-align:center;
+  box-shadow:0 6px 0 rgba(43,27,61,.35);
+}
+#status{
+  margin:0; min-height:1.4em;
+  font-size:clamp(1.15rem,4.6vw,1.8rem); font-weight:800; color:#d81b72;
+}
+#result{
+  margin:4px 0 0; min-height:2.4em;
+  display:flex; align-items:center; justify-content:center;
+  font-size:clamp(1.5rem,6.4vw,2.9rem); font-weight:900; line-height:1.12;
+}
+#result.hint{ font-size:clamp(1.1rem,4.6vw,1.8rem); font-weight:700; color:#7a6a90; }
+#result .big{
+  display:inline-block; min-width:1.3em; margin:0 .1em; padding:0 .15em;
+  border-radius:.4em; color:#fff; background:var(--c,#4d7cff);
+  text-shadow:0 2px 0 rgba(0,0,0,.25); border:3px solid var(--ink);
+}
+#result.pop{ animation:pop .55s cubic-bezier(.2,1.6,.4,1); }
+@keyframes pop{ 0%{transform:scale(.4);opacity:0} 100%{transform:scale(1);opacity:1} }
+
+/* Bouton son (discret) */
+.sound{
+  position:fixed; top:8px; left:8px; z-index:5; width:44px; height:44px;
+  border-radius:50%; border:3px solid var(--ink); background:#fff; font-size:22px;
+  cursor:pointer; line-height:1; padding:0;
+}
+
+/* ---------- Paysage sur petit écran (smartphone couché) ---------- */
+@media (orientation:landscape) and (max-height:560px){
+  :root{ --wheel:max(200px, min(calc((100vh - 30px) / 1.14), 52vw)); }
+  .game{
+    display:grid; grid-template-columns:auto minmax(0,1fr);
+    grid-template-rows:1fr 1fr; column-gap:22px; row-gap:8px; align-items:center;
+    padding:8px 14px;
+  }
+  h1{ grid-column:2; grid-row:1; align-self:end; }
+  .wheel-zone{ grid-column:1; grid-row:1 / span 2; margin-top:calc(var(--wheel) * .12); }
+  .panel{ grid-column:2; grid-row:2; align-self:start; width:auto; }
+  .buddy{ display:none; }
+}
+@supports (height:100dvh){
+  @media (orientation:landscape) and (max-height:560px){
+    :root{ --wheel:max(200px, min(calc((100dvh - 30px) / 1.14), 52vw)); }
+  }
+}
+
+@media (prefers-reduced-motion:reduce){
+  .buddy,.hub.idle{ animation:none; }
+}
+</style>
+</head>
+
+<body>
+
+<!-- ============ Dessins réutilisables (tous originaux, en SVG) ============ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- Empreinte de patte -->
+    <symbol id="paw" viewBox="0 0 100 100">
+      <ellipse cx="50" cy="68" rx="23" ry="19" fill="currentColor"/>
+      <ellipse cx="21" cy="44" rx="9" ry="12" fill="currentColor" transform="rotate(-20 21 44)"/>
+      <ellipse cx="40" cy="28" rx="9" ry="13" fill="currentColor"/>
+      <ellipse cx="60" cy="28" rx="9" ry="13" fill="currentColor"/>
+      <ellipse cx="79" cy="44" rx="9" ry="12" fill="currentColor" transform="rotate(20 79 44)"/>
+    </symbol>
+    <!-- Os -->
+    <symbol id="bone" viewBox="0 0 120 50">
+      <rect x="18" y="16" width="84" height="18" rx="9" fill="currentColor"/>
+      <circle cx="16" cy="14" r="12" fill="currentColor"/>
+      <circle cx="16" cy="36" r="12" fill="currentColor"/>
+      <circle cx="104" cy="14" r="12" fill="currentColor"/>
+      <circle cx="104" cy="36" r="12" fill="currentColor"/>
+    </symbol>
+    <!-- Petit chien décoratif (couleurs via --fur et --ear) -->
+    <symbol id="buddy" viewBox="0 0 100 100">
+      <ellipse cx="20" cy="42" rx="13" ry="26" fill="var(--ear)" transform="rotate(15 20 42)"/>
+      <ellipse cx="80" cy="42" rx="13" ry="26" fill="var(--ear)" transform="rotate(-15 80 42)"/>
+      <circle cx="50" cy="58" r="37" fill="var(--fur)" stroke="#5a3a1e" stroke-width="3"/>
+      <ellipse cx="50" cy="72" rx="20" ry="15" fill="#fff1d6"/>
+      <circle cx="36" cy="52" r="6" fill="#fff" stroke="#2d1d14" stroke-width="2"/>
+      <circle cx="64" cy="52" r="6" fill="#fff" stroke="#2d1d14" stroke-width="2"/>
+      <circle cx="37" cy="53" r="3.2" fill="#2d1d14"/>
+      <circle cx="63" cy="53" r="3.2" fill="#2d1d14"/>
+      <ellipse cx="50" cy="63" rx="8" ry="5.5" fill="#2d1d14"/>
+      <path d="M38 74 Q50 86 62 74 Z" fill="#8c1d3a"/>
+      <ellipse cx="50" cy="79" rx="6" ry="4.5" fill="#ff7a9c"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="hill"></div>
+<div class="sun"></div>
+
+<!-- Empreintes et os en arrière-plan -->
+<div class="deco" aria-hidden="true">
+  <svg style="left:4%;top:12%;width:46px;color:#8a5a33;transform:rotate(-20deg)"><use href="#paw"/></svg>
+  <svg style="left:14%;top:30%;width:34px;color:#ff7a1a;transform:rotate(15deg)"><use href="#paw"/></svg>
+  <svg style="right:6%;top:20%;width:50px;color:#9b5de5;transform:rotate(25deg)"><use href="#paw"/></svg>
+  <svg style="right:16%;top:46%;width:36px;color:#8a5a33;transform:rotate(-15deg)"><use href="#paw"/></svg>
+  <svg style="left:7%;top:58%;width:40px;color:#f15bb5;transform:rotate(30deg)"><use href="#paw"/></svg>
+  <svg style="right:5%;top:72%;width:44px;color:#27c3e6;transform:rotate(-30deg)"><use href="#paw"/></svg>
+  <svg style="left:22%;top:80%;width:34px;color:#8a5a33;transform:rotate(10deg)"><use href="#paw"/></svg>
+  <svg style="left:2%;top:42%;width:70px;color:#fff;transform:rotate(-25deg);opacity:.7"><use href="#bone"/></svg>
+  <svg style="right:3%;top:8%;width:70px;color:#fff;transform:rotate(20deg);opacity:.7"><use href="#bone"/></svg>
+  <svg style="right:8%;top:60%;width:60px;color:#fff;transform:rotate(-10deg);opacity:.7"><use href="#bone"/></svg>
+</div>
+
+<!-- Chiens sympas qui regardent la roulette -->
+<svg class="buddy left"  aria-hidden="true"><use href="#buddy"/></svg>
+<svg class="buddy right" aria-hidden="true"><use href="#buddy"/></svg>
+
+<button class="sound" id="soundBtn" type="button" aria-label="Activer ou couper le son" title="Son">🔊</button>
+
+<noscript>Ce jeu a besoin de JavaScript pour fonctionner.</noscript>
+
+<main class="game">
+
+  <h1>
+    <svg aria-hidden="true"><use href="#paw"/></svg>
+    La Roue des Toutous
+    <svg aria-hidden="true"><use href="#paw"/></svg>
+  </h1>
+
+  <section class="wheel-zone" aria-label="Roulette">
+
+    <!-- Flèche fixe au-dessus de la roulette -->
+    <div class="pointer" id="pointer">
+      <svg viewBox="0 0 60 80" aria-hidden="true">
+        <path d="M30 78 L9 40 A24 24 0 1 1 51 40 Z" fill="#ff2d55" stroke="#fff" stroke-width="5" stroke-linejoin="round"/>
+        <circle cx="30" cy="28.4" r="9" fill="#fff"/>
+        <circle cx="30" cy="28.4" r="4" fill="#ffd54f"/>
+      </svg>
+    </div>
+
+    <!-- La roue (générée par le JavaScript) -->
+    <div class="rotor" id="rotor"></div>
+
+    <!-- Bouton central : le petit chien -->
+    <button class="hub idle" id="hub" type="button" aria-label="Touche le chien pour lancer la roulette">
+      <svg class="dog mood-sleep" id="dog" viewBox="0 0 200 200" aria-hidden="true">
+        <circle class="bgc" cx="100" cy="100" r="96"/>
+
+        <g class="body">
+          <!-- Oreilles -->
+          <g class="ear ear-l"><ellipse cx="48" cy="92" rx="19" ry="38" fill="#8a5a33" stroke="#5a3a1e" stroke-width="3" transform="rotate(14 48 92)"/></g>
+          <g class="ear ear-r"><ellipse cx="152" cy="92" rx="19" ry="38" fill="#8a5a33" stroke="#5a3a1e" stroke-width="3" transform="rotate(-14 152 92)"/></g>
+
+          <!-- Tête, tache autour de l'œil, museau, truffe -->
+          <ellipse cx="100" cy="104" rx="58" ry="54" fill="#f2bd78" stroke="#5a3a1e" stroke-width="4"/>
+          <ellipse cx="76" cy="92" rx="20" ry="22" fill="#8a5a33"/>
+          <ellipse cx="100" cy="128" rx="30" ry="23" fill="#fff1d6" stroke="#5a3a1e" stroke-width="3"/>
+          <ellipse cx="100" cy="115" rx="13" ry="9" fill="#2d1d14"/>
+          <ellipse cx="96" cy="112" rx="4" ry="2" fill="#fff" opacity=".7"/>
+          <circle cx="90" cy="127" r="1.8" fill="#2d1d14" opacity=".5"/>
+          <circle cx="110" cy="127" r="1.8" fill="#2d1d14" opacity=".5"/>
+
+          <!-- Collier avec médaille -->
+          <path d="M58 148 Q100 176 142 148 L146 160 Q100 192 54 160 Z" fill="#e53935" stroke="#2d1d14" stroke-width="3" stroke-linejoin="round"/>
+          <circle cx="100" cy="180" r="8" fill="#ffd54f" stroke="#2d1d14" stroke-width="2.5"/>
+
+          <!-- ===== Expression : SOMNOLENT (au repos) ===== -->
+          <g class="s s-sleep">
+            <path class="ln" d="M62 94 q14 10 28 0"/>
+            <path class="ln" d="M110 94 q14 10 28 0"/>
+            <path class="ln" d="M88 136 q12 6 24 0"/>
+            <text class="z z1" x="128" y="46" font-size="18">z</text>
+            <text class="z z2" x="146" y="32" font-size="22">z</text>
+            <text class="z z3" x="158" y="64" font-size="16">z</text>
+          </g>
+
+          <!-- ===== Expression : DÉÇU / BOUDEUR ===== -->
+          <g class="s s-sad">
+            <path class="ln" d="M60 82 L90 68"/>
+            <path class="ln" d="M140 82 L110 68"/>
+            <circle cx="76" cy="92" r="11" fill="#fff" stroke="#2d1d14" stroke-width="3"/>
+            <circle cx="124" cy="92" r="11" fill="#fff" stroke="#2d1d14" stroke-width="3"/>
+            <circle cx="76" cy="97" r="6" fill="#2d1d14"/>
+            <circle cx="124" cy="97" r="6" fill="#2d1d14"/>
+            <circle cx="78" cy="95" r="2" fill="#fff"/>
+            <circle cx="126" cy="95" r="2" fill="#fff"/>
+            <path d="M68 108 q-6 10 0 14 q6 -4 0 -14 z" fill="#5ac8fa" stroke="#2d1d14" stroke-width="2"/>
+            <path class="ln" d="M86 143 q14 -13 28 0"/>
+          </g>
+
+          <!-- ===== Expression : JOYEUX ===== -->
+          <g class="s s-happy">
+            <path class="ln" d="M62 70 q14 -9 28 0"/>
+            <path class="ln" d="M110 70 q14 -9 28 0"/>
+            <circle cx="76" cy="92" r="12" fill="#fff" stroke="#2d1d14" stroke-width="3"/>
+            <circle cx="124" cy="92" r="12" fill="#fff" stroke="#2d1d14" stroke-width="3"/>
+            <circle cx="78" cy="94" r="7" fill="#2d1d14"/>
+            <circle cx="122" cy="94" r="7" fill="#2d1d14"/>
+            <circle cx="80" cy="91" r="2.6" fill="#fff"/>
+            <circle cx="124" cy="91" r="2.6" fill="#fff"/>
+            <circle cx="56" cy="120" r="8" fill="#ff8aa0" opacity=".55"/>
+            <circle cx="144" cy="120" r="8" fill="#ff8aa0" opacity=".55"/>
+            <path d="M80 130 Q100 164 120 130 Z" fill="#8c1d3a" stroke="#2d1d14" stroke-width="3" stroke-linejoin="round"/>
+            <ellipse cx="100" cy="142" rx="10" ry="7" fill="#ff7a9c"/>
+          </g>
+
+          <!-- ===== Expression : PENDANT LA ROTATION (yeux tourbillon, langue dehors) ===== -->
+          <g class="s s-spin">
+            <path class="ln" d="M62 70 q14 -9 28 0"/>
+            <path class="ln" d="M110 70 q14 -9 28 0"/>
+            <circle cx="76" cy="92" r="13" fill="#fff" stroke="#2d1d14" stroke-width="3"/>
+            <circle cx="124" cy="92" r="13" fill="#fff" stroke="#2d1d14" stroke-width="3"/>
+            <circle class="ring" cx="76" cy="92" r="7" fill="none" stroke="#2d1d14" stroke-width="3.5" stroke-dasharray="16 8"/>
+            <circle class="ring" cx="124" cy="92" r="7" fill="none" stroke="#2d1d14" stroke-width="3.5" stroke-dasharray="16 8"/>
+            <circle cx="56" cy="120" r="8" fill="#ff8aa0" opacity=".55"/>
+            <circle cx="144" cy="120" r="8" fill="#ff8aa0" opacity=".55"/>
+            <path d="M80 130 Q100 152 120 130 Z" fill="#8c1d3a" stroke="#2d1d14" stroke-width="3" stroke-linejoin="round"/>
+            <path class="tongue" d="M90 138 v12 a10 10 0 0 0 20 0 v-12 z" fill="#ff7a9c" stroke="#2d1d14" stroke-width="2.5" stroke-linejoin="round"/>
+          </g>
+
+          <!-- ===== Expression : CURIEUX ===== -->
+          <g class="s s-curious">
+            <path class="ln" d="M62 66 q14 -12 28 -2"/>
+            <path class="ln" d="M112 76 L138 76"/>
+            <circle cx="76" cy="92" r="12" fill="#fff" stroke="#2d1d14" stroke-width="3"/>
+            <circle cx="124" cy="92" r="12" fill="#fff" stroke="#2d1d14" stroke-width="3"/>
+            <circle cx="80" cy="89" r="7" fill="#2d1d14"/>
+            <circle cx="128" cy="89" r="7" fill="#2d1d14"/>
+            <circle cx="82" cy="86" r="2.6" fill="#fff"/>
+            <circle cx="130" cy="86" r="2.6" fill="#fff"/>
+            <ellipse cx="100" cy="141" rx="8" ry="9" fill="#8c1d3a" stroke="#2d1d14" stroke-width="3"/>
+          </g>
+        </g>
+      </svg>
+    </button>
+  </section>
+
+  <!-- Messages -->
+  <section class="panel" aria-live="polite">
+    <p id="status">Touche le chien pour tenter ta chance !</p>
+    <p id="result" class="hint">Une chance sur trois que la roue tourne…</p>
+  </section>
+
+</main>
+
+<script>
+/* =====================================================================
+   PARTIE 1 : LOGIQUE DU JEU (pure, sans accès à la page)
+   ===================================================================== */
+// ==== LOGIC START ====
+const NB_CASES = 9;                 // exactement 9 cases
+const SEG = 360 / NB_CASES;         // 40° par case
+const SPIN_MS = 4000;               // durée de la rotation : 4 secondes
+
+/* Couleurs de chaque case (modifiable ici). "fill" = fond de la case. */
+const CELL_STYLES = {
+  n1: { fill:'#ff4d4d' },   // 1 : rouge
+  n2: { fill:'#ff9f1c' },   // 2 : orange
+  n3: { fill:'#f2b705' },   // 3 : jaune doré
+  n4: { fill:'#2ec27e' },   // 4 : vert
+  n5: { fill:'#27c3e6' },   // 5 : turquoise
+  n6: { fill:'#4d7cff' },   // 6 : bleu
+  c1: { fill:'#9b5de5' },   // 1 carte : violet (rayé)
+  c2: { fill:'#f15bb5' },   // 2 cartes : rose (rayé)
+  c3: { fill:'#a0522d' }    // 3 cartes : chocolat (rayé)
+};
+
+/* Textes affichés (modifiable ici) */
+const TEXTS = {
+  invite:   'Touche le chien pour tenter ta chance !',
+  started:  'Wouh ! Ça tourne !',
+  refused:  'Bof, bof !',
+  stopped:  'La roue s\'est arrêtée !',
+  retry:    'Essaie encore !',
+  number:   v => `Le chiffre obtenu est : <span class="big" style="--c:COLOR">${v}</span> !`,
+  cards:    v => `Ton adversaire doit te donner <span class="big" style="--c:COLOR">${v}</span> carte${v > 1 ? 's' : ''} !`
+};
+
+/* Construit les 9 cases : 6 chiffres + 3 cases spéciales */
+function buildCells(){
+  const cells = [];
+  for (let v = 1; v <= 6; v++) cells.push({ id:'n' + v, type:'number', value:v });
+  for (let v = 1; v <= 3; v++) cells.push({ id:'c' + v, type:'cards',  value:v });
+  return cells;
+}
+
+/* Mélange de Fisher-Yates : ordre vraiment aléatoire */
+function shuffle(array, rnd = Math.random){
+  const a = array.slice();
+  for (let i = a.length - 1; i > 0; i--){
+    const j = Math.floor(rnd() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/* Tirage de lancement : chaque appui est un tirage indépendant,
+   probabilité exacte de 1/3 (0 -> démarre, 1 ou 2 -> ne démarre pas) */
+function shouldSpin(rnd = Math.random){
+  return Math.floor(rnd() * 3) === 0;
+}
+
+/* Convention : la case i occupe l'angle [i*40°, (i+1)*40°[ à partir du haut,
+   dans le sens des aiguilles d'une montre, avant rotation de la roue.
+   Si la roue a tourné de "rotation" degrés (sens horaire), la case sous la
+   flèche (en haut) est celle dont l'angle vaut -rotation. */
+function indexAtPointer(rotation){
+  const a = (((-rotation) % 360) + 360) % 360;
+  return Math.floor(a / SEG) % NB_CASES;
+}
+
+/* Rotation finale pour que la case "winnerIdx" s'arrête sous la flèche.
+   offsetDeg décale un peu l'arrêt à l'intérieur de la case (±14°)
+   pour un rendu naturel, sans jamais sortir de la case. */
+function targetRotation(current, winnerIdx, offsetDeg, turns){
+  const phi = winnerIdx * SEG + SEG / 2 + offsetDeg;
+  const desired = (((-phi) % 360) + 360) % 360;
+  const curMod  = ((current % 360) + 360) % 360;
+  const delta   = (desired - curMod + 360) % 360;
+  return current + turns * 360 + delta;
+}
+
+/* Courbe de vitesse : accélération courte (12 % du temps), puis
+   ralentissement progressif et doux jusqu'à l'arrêt. 0 -> 0 et 1 -> 1. */
+const ACC = 0.12;
+const VMAX = 1 / (ACC / 2 + (1 - ACC) / 3);
+function easeSpin(t){
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  if (t < ACC) return VMAX * t * t / (2 * ACC);
+  const s = (t - ACC) / (1 - ACC);
+  return VMAX * (ACC / 2 + (1 - ACC) * (1 - Math.pow(1 - s, 3)) / 3);
+}
+// ==== LOGIC END ====
+
+
+/* =====================================================================
+   PARTIE 2 : AFFICHAGE ET INTERACTION
+   ===================================================================== */
+const rotorEl  = document.getElementById('rotor');
+const hubEl    = document.getElementById('hub');
+const dogEl    = document.getElementById('dog');
+const pointerEl= document.getElementById('pointer');
+const statusEl = document.getElementById('status');
+const resultEl = document.getElementById('result');
+const soundBtn = document.getElementById('soundBtn');
+
+const state = {
+  cells: [],          // les 9 cases dans l'ordre mélangé
+  rotation: 0,        // angle actuel de la roue (degrés)
+  spinning: false,    // vrai pendant la rotation : bouton bloqué
+  lastColor: -1,      // pour changer réellement de couleur à chaque appui
+  moodTimer: null
+};
+
+/* ---------- Dessin de la roue en SVG ---------- */
+function polar(r, angleDeg){
+  const a = angleDeg * Math.PI / 180;
+  return [200 + r * Math.sin(a), 200 - r * Math.cos(a)];   // 0° = en haut, sens horaire
+}
+
+function renderWheel(){
+  const R = 176;                                            // rayon des cases
+  let svg = '<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">';
+  svg += `<defs>
+    <pattern id="stripes" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="7" height="14" fill="rgba(255,255,255,.22)"/>
+    </pattern>
+    <radialGradient id="sheen" cx="50%" cy="50%" r="50%">
+      <stop offset="60%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000" stop-opacity=".14"/>
+    </radialGradient>
+  </defs>`;
+
+  // Bord de la roue + ampoules
+  svg += '<circle cx="200" cy="200" r="199" fill="#4a2370"/>';
+  for (let i = 0; i < 18; i++){
+    const [x, y] = polar(187, i * 20);
+    svg += `<circle class="${i % 2 ? 'la' : 'lb'}" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="6" fill="#fff176" stroke="#ff9800" stroke-width="2"/>`;
+  }
+
+  // Les 9 cases
+  state.cells.forEach((cell, i) => {
+    const a0 = i * SEG, a1 = (i + 1) * SEG, mid = a0 + SEG / 2;
+    const [x0, y0] = polar(R, a0);
+    const [x1, y1] = polar(R, a1);
+    const d = `M200 200 L${x0.toFixed(2)} ${y0.toFixed(2)} A${R} ${R} 0 0 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z`;
+    const st = CELL_STYLES[cell.id];
+
+    svg += `<path d="${d}" fill="${st.fill}" stroke="#fff" stroke-width="5" stroke-linejoin="round"/>`;
+    if (cell.type === 'cards') svg += `<path d="${d}" fill="url(#stripes)"/>`;
+
+    // Texte tourné avec la case (lisible quand la case est en haut)
+    const txt = 'fill="#fff" stroke="#2b1b3d" stroke-linejoin="round" paint-order="stroke" text-anchor="middle" font-weight="900"';
+    svg += `<g transform="rotate(${mid} 200 200)">`;
+    if (cell.type === 'number'){
+      svg += `<text x="200" y="${200 - 96}" font-size="80" stroke-width="9" ${txt}>${cell.value}</text>`;
+    } else {
+      const len3 = cell.value > 1 ? 70 : 56;
+      svg += `<text x="200" y="${200 - 156}" font-size="15" stroke-width="5" textLength="100" lengthAdjust="spacingAndGlyphs" ${txt}>L'adversaire</text>`;
+      svg += `<text x="200" y="${200 - 136}" font-size="17" stroke-width="5" ${txt}>donne</text>`;
+      svg += `<text x="200" y="${200 - 111}" font-size="21" stroke-width="6" textLength="${len3}" lengthAdjust="spacingAndGlyphs" ${txt}>${cell.value} carte${cell.value > 1 ? 's' : ''}</text>`;
+    }
+    svg += '</g>';
+  });
+
+  svg += '<circle cx="200" cy="200" r="176" fill="url(#sheen)"/>';
+  svg += '<circle cx="200" cy="200" r="177" fill="none" stroke="#fff" stroke-width="4"/>';
+  svg += '<circle cx="200" cy="200" r="64" fill="#4a2370" stroke="#fff" stroke-width="5"/>';   // centre (sous le chien)
+  svg += '</svg>';
+  rotorEl.innerHTML = svg;
+}
+
+function applyRotation(deg){
+  rotorEl.style.transform = `rotate(${deg}deg)`;
+}
+
+/* ---------- Expressions du chien ---------- */
+function setMood(mood){
+  dogEl.setAttribute('class', 'dog mood-' + mood);
+}
+function moodLater(mood, ms){
+  clearTimeout(state.moodTimer);
+  state.moodTimer = setTimeout(() => { if (!state.spinning) setMood(mood); }, ms);
+}
+
+/* ---------- Couleur du bouton : change à chaque appui ---------- */
+const BTN_COLORS = ['#ff4d4d','#ff9f1c','#ffd23f','#2ec27e','#27c3e6','#4d7cff','#9b5de5','#f15bb5'];
+function changeButtonColor(){
+  let i;
+  do { i = Math.floor(Math.random() * BTN_COLORS.length); } while (i === state.lastColor);
+  state.lastColor = i;
+  hubEl.style.setProperty('--btn', BTN_COLORS[i]);
+}
+
+/* ---------- Sons (facultatifs, synthétisés, aucun fichier) ---------- */
+let audioCtx = null, soundOn = true, lastTick = 0;
+function initAudio(){
+  try{
+    if (!audioCtx){ const AC = window.AudioContext || window.webkitAudioContext; if (AC) audioCtx = new AC(); }
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  }catch(e){}
+}
+function beep(freq, dur, type = 'sine', vol = 0.08, delay = 0){
+  if (!soundOn || !audioCtx) return;
+  try{
+    const t = audioCtx.currentTime + delay;
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t + dur + 0.02);
+  }catch(e){}
+}
+soundBtn.addEventListener('click', () => {
+  soundOn = !soundOn;
+  soundBtn.textContent = soundOn ? '🔊' : '🔇';
+  initAudio();
+});
+
+/* ---------- Déroulement d'une tentative ---------- */
+function onPress(){
+  if (state.spinning) return;            // impossible de relancer pendant la rotation
+  initAudio();
+  changeButtonColor();                   // la couleur change immédiatement, à chaque appui
+  clearTimeout(state.moodTimer);
+  resultEl.className = '';
+  resultEl.innerHTML = '';               // le précédent résultat disparaît à la nouvelle tentative
+
+  if (shouldSpin()) startSpin(); else refuse();
+}
+
+function refuse(){
+  statusEl.textContent = TEXTS.refused;
+  resultEl.className = 'hint';
+  resultEl.textContent = TEXTS.retry;
+  setMood('sad');
+  beep(240, .3, 'triangle', .09); beep(180, .35, 'triangle', .09, .18);
+  moodLater('sleep', 2600);
+}
+
+function startSpin(){
+  state.spinning = true;
+  hubEl.disabled = true;                 // bouton bloqué pendant les 4 secondes
+  hubEl.classList.remove('idle');
+  rotorEl.classList.add('spinning');
+  statusEl.textContent = TEXTS.started;
+  setMood('happy');
+  beep(523, .12, 'triangle'); beep(659, .12, 'triangle', .08, .1); beep(784, .18, 'triangle', .08, .2);
+  setTimeout(() => { if (state.spinning) setMood('spin'); }, 600);
+
+  // Résultat tiré au hasard parmi les 9 cases, de façon uniforme
+  const winner = Math.floor(Math.random() * NB_CASES);
+  const offset = (Math.random() * 2 - 1) * (SEG / 2 - 6);       // arrêt ±14° autour du centre de la case
+  const turns  = 3 + Math.floor(Math.random() * 2);             // 3 ou 4 tours complets + le reste
+  const start  = state.rotation;
+  const end    = targetRotation(start, winner, offset, turns);
+  const t0     = performance.now();
+  let lastIdx  = indexAtPointer(start);
+
+  function frame(now){
+    const t   = Math.min(1, (now - t0) / SPIN_MS);
+    const rot = start + (end - start) * easeSpin(t);
+    applyRotation(rot);
+
+    // Petit "clac" de la flèche à chaque case qui passe
+    const idx = indexAtPointer(rot);
+    if (idx !== lastIdx){
+      lastIdx = idx;
+      if (pointerEl.animate){
+        pointerEl.animate(
+          [{ transform:'translateX(-50%) rotate(-20deg)' }, { transform:'translateX(-50%) rotate(0deg)' }],
+          { duration:120, easing:'ease-out' }
+        );
+      }
+      if (now - lastTick > 55){ lastTick = now; beep(880, .03, 'square', .03); }
+    }
+
+    if (t < 1) requestAnimationFrame(frame);
+    else finishSpin(end, winner);
+  }
+  requestAnimationFrame(frame);
+}
+
+function finishSpin(end, winner){
+  state.rotation = ((end % 360) + 360) % 360;   // on garde un angle court (visuellement identique)
+  applyRotation(state.rotation);
+
+  // Le résultat est lu à partir de la position réelle de la roue sous la flèche
+  const idx  = indexAtPointer(state.rotation);
+  const cell = state.cells[idx];
+  if (idx !== winner) console.warn('Incohérence flèche / case', idx, winner);
+
+  state.spinning = false;
+  hubEl.disabled = false;
+  hubEl.classList.add('idle');
+  rotorEl.classList.remove('spinning');
+
+  statusEl.textContent = TEXTS.stopped;
+  const color = CELL_STYLES[cell.id].fill;
+  const html  = (cell.type === 'number' ? TEXTS.number : TEXTS.cards)(cell.value).replace('COLOR', color);
+  resultEl.className = '';
+  resultEl.innerHTML = '<span>' + html + '</span>';   // un seul bloc de texte (évite la coupure dans le conteneur flex)
+  void resultEl.offsetWidth;                    // relance l'animation "pop"
+  resultEl.classList.add('pop');
+
+  setMood(cell.type === 'cards' ? 'curious' : 'happy');
+  beep(523, .12, 'triangle'); beep(659, .12, 'triangle', .08, .12);
+  beep(784, .12, 'triangle', .08, .24); beep(1047, .3, 'triangle', .08, .36);
+  try{ if (navigator.vibrate) navigator.vibrate(40); }catch(e){}
+  moodLater('sleep', 6000);
+}
+
+/* ---------- Démarrage d'une nouvelle partie ---------- */
+function newGame(){
+  state.cells = shuffle(buildCells());          // ordre mélangé au démarrage
+  state.rotation = 0;
+  renderWheel();
+  applyRotation(0);
+  setMood('sleep');
+}
+
+hubEl.addEventListener('click', onPress);
+newGame();
+</script>
+</body>
+</html>
